@@ -1,47 +1,79 @@
-import OpenAI from "openai";
-
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+import { NextResponse } from "next/server";
 
 export async function POST(req) {
   try {
     const { text } = await req.json();
 
-    const prompt = `
-You are an AI that analyzes Terms & Conditions for risky clauses.
-Break down the text and return:
+    if (!text || text.trim() === "") {
+      return NextResponse.json(
+        { error: "No text provided" },
+        { status: 400 }
+      );
+    }
 
-1. "summary" – short summary.
-2. "riskLevel" – HIGH, MEDIUM, LOW.
-3. "riskScore" – number between 0-100.
-4. "keyClauses" – bullet list.
-5. "highlightedText" – return the SAME text but wrap dangerous clauses in: <mark class="risk"> ... </mark>
+    // Call OpenAI
+    const completion = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: "You analyze privacy policies and return structured risk output."
+          },
+          {
+            role: "user",
+            content: `
+Analyze this text and return JSON only:
 
-Dangerous clauses include:
-• Data selling
-• Location/device tracking
-• Indefinite data retention
-• Advertiser sharing
-• Third-party data transfer
-• Consent bypassing
-• Automatic renewal
-
-Text to analyze:
+Text:
 ${text}
-    `;
 
-    const response = await client.responses.create({
-      model: "gpt-4.1-mini",
-      input: prompt
+Return JSON in this EXACT structure:
+{
+  "risk_level": "Low | Medium | High | Very High",
+  "risk_score": number,
+  "summary_verdict": "short summary",
+  "key_clauses": ["clause1", "clause2"],
+  "highlighted_text": "<mark> ... </mark>"
+}
+`
+          }
+        ]
+      })
     });
 
-    const output = JSON.parse(response.output_text);
+    const raw = await completion.json();
 
-    return Response.json(output);
+    // Parse model output safely
+    let clean;
+    try {
+      clean = JSON.parse(raw.choices[0].message.content);
+    } catch (err) {
+      console.log("JSON parse failed:", err);
+      return NextResponse.json({ error: "Invalid model output" }, { status: 500 });
+    }
 
-  } catch (error) {
-    console.error(error);
-    return Response.json({ error: "Analysis failed" }, { status: 500 });
+    // Ensure all fields exist
+    const finalResult = {
+      risk_level: clean.risk_level ?? "Unknown",
+      risk_score: clean.risk_score ?? 0,
+      summary_verdict: clean.summary_verdict ?? "",
+      key_clauses: Array.isArray(clean.key_clauses) ? clean.key_clauses : [],
+      highlighted_text: clean.highlighted_text ?? ""
+    };
+
+    return NextResponse.json(finalResult);
+
+  } catch (err) {
+    console.error("API Error:", err);
+    return NextResponse.json(
+      { error: "Server error occurred" },
+      { status: 500 }
+    );
   }
 }

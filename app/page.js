@@ -7,58 +7,98 @@ export default function Home() {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  async function analyze() {
-    setLoading(true);
-    const res = await fetch("/api/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-    });
+  const analyzeText = async () => {
+    if (!text.trim()) return;
 
-    const data = await res.json();
-    setResult(data);
+    setLoading(true);
+
+    try {
+      const response = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text })
+      });
+
+      const data = await response.json();
+      setResult(data);
+
+      // ---------------------------------------------
+      // SAVE LIGHTWEIGHT HISTORY SUMMARY (Option B)
+      // ---------------------------------------------
+      await fetch("/api/history/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          risk_level: data.risk_level,
+          risk_score: data.risk_score,
+          summary: data.summary_verdict
+        })
+      });
+
+    } catch (error) {
+      console.error("Error:", error);
+      setResult({
+        error: "Something went wrong. Try again."
+      });
+    }
+
     setLoading(false);
-  }
+  };
 
   return (
-    <div className="window">
-
+    <div style={{ padding: "20px" }}>
       <h1>ConsentGuard</h1>
       <p>Paste any Terms & Conditions or Privacy Policy text:</p>
 
       <textarea
+        className="input"
         placeholder="Paste text here..."
         value={text}
         onChange={(e) => setText(e.target.value)}
       />
 
-      <button onClick={analyze} disabled={loading || text.length < 3}>
+      <button className="btn" onClick={analyzeText} disabled={loading}>
         {loading ? "Analyzing..." : "Analyze"}
       </button>
 
+      {/* RESULTS */}
       {result && (
-        <div className="result-card">
-          <h2>Analysis Result</h2>
+        <div className="glass result-card">
+          {result.error && (
+            <p style={{ color: "red" }}>{result.error}</p>
+          )}
 
-          <p><strong>Risk Level:</strong> {result.risk_level}</p>
-          <p><strong>Risk Score:</strong> {result.risk_score}</p>
-          <p><strong>Summary:</strong> {result.summary_verdict}</p>
+          {!result.error && (
+            <>
+              <h2>Analysis Result</h2>
 
-          <h3>Key Clauses:</h3>
-          <ul>
-            {result.key_clauses.map((c, i) => (
-              <li key={i}>{c}</li>
-            ))}
-          </ul>
+              <p><strong>Risk Level:</strong> {result.risk_level}</p>
+              <p><strong>Risk Score:</strong> {result.risk_score}</p>
+              <p><strong>Summary:</strong> {result.summary_verdict}</p>
 
-          {result.highlighted_text && (
-            <div
-              dangerouslySetInnerHTML={{ __html: result.highlighted_text }}
-            />
+              {/* KEY CLAUSES */}
+              {Array.isArray(result.key_clauses) && result.key_clauses.length > 0 && (
+                <>
+                  <h3>Key Clauses:</h3>
+                  <ul>
+                    {result.key_clauses.map((c, i) => (
+                      <li key={i}>{c}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+
+              {/* HIGHLIGHTED TEXT */}
+              {result.highlighted_text && (
+                <div
+                  className="highlight-card"
+                  dangerouslySetInnerHTML={{ __html: result.highlighted_text }}
+                />
+              )}
+            </>
           )}
         </div>
       )}
-
     </div>
   );
 }
